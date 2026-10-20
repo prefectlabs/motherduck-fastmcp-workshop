@@ -1,4 +1,4 @@
-# Give your Agents the tools it needs
+# Give your agents the tools it needs
 
 A hands-on workshop from Prefect at MotherDuck Data Outpost, November 4, 2026.
 
