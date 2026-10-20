@@ -41,7 +41,7 @@ The goal is to get the slow, one-time steps done first: signing in, giving FastM
 
    ```bash
    claude mcp add --scope local --transport http sf-311 https://<name>.fastmcp.app/mcp
-   claude mcp add --scope local --transport http room https://ROOM-SERVER.fastmcp.app/mcp
+   claude mcp add --scope local --transport http room https://motherduck-control-center.fastmcp.app/mcp
    ```
 
    Start Claude Code in the repo folder and type `/mcp`.

@@ -66,8 +66,8 @@ Open your server, select **Connect**, and pick your client.
 
 | Client | Your server | Room server |
 | --- | --- | --- |
-| Claude Code | `claude mcp add --scope local --transport http sf-311 <your URL>`, then `/mcp` to sign in. | `claude mcp add --scope local --transport http room https://ROOM-SERVER.fastmcp.app/mcp` |
-| Cursor | Use the `cursor://` link in the **Connect** dialog. | Add `{"mcpServers": {"room": {"url": "https://ROOM-SERVER.fastmcp.app/mcp"}}}` to `~/.cursor/mcp.json`. |
+| Claude Code | `claude mcp add --scope local --transport http sf-311 <your URL>`, then `/mcp` to sign in. | `claude mcp add --scope local --transport http room https://motherduck-control-center.fastmcp.app/mcp` |
+| Cursor | Use the `cursor://` link in the **Connect** dialog. | Add `{"mcpServers": {"room": {"url": "https://motherduck-control-center.fastmcp.app/mcp"}}}` to `~/.cursor/mcp.json`. |
 | Claude Desktop | Select **Add to Claude Desktop** in the **Connect** dialog, and open the downloaded `.mcpb` file. | In **Settings**, then **Developer**, then **Edit Config**, add the room server with `"url"` and `"transport": "http"`, then restart Claude Desktop. |
 
 The room server needs no sign-in.
