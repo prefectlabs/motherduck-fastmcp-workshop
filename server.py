@@ -142,6 +142,45 @@ def median_close_hours(
     return dict(sorted(medians.items(), key=lambda item: (item[1], item[0]))[:MAX_ROWS])
 
 
+def _range(hours: list[float]) -> dict:
+    return {
+        "closed": len(hours),
+        "min_hours": round(min(hours), 1),
+        "median_hours": round(median(hours), 1),
+        "max_hours": round(max(hours), 1),
+    }
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+def close_hours_range(
+    service: str | None = None,
+    group_by: Literal["neighborhood", "agency"] | None = None,
+) -> dict:
+    """Fastest, median and slowest hours from opened to closed, for closed requests.
+
+    Without group_by, returns {closed, min_hours, median_hours, max_hours}
+    (hours rounded to 0.1; closed is 0 and the hours are None if nothing has
+    closed). Use it for "longest/shortest time any request took to close".
+    With group_by, returns group -> that same dict, slowest max first, at most
+    50 groups; use it to compare the fastest and slowest neighborhoods or agencies.
+    For volumes use count_requests; for just a median, median_close_hours.
+    """
+    _check_group(group_by, MEDIAN_GROUPS)
+    rows = [r for r in _matching(service) if r.hours_to_close is not None]
+    if group_by is None:
+        if not rows:
+            return {"closed": 0, "min_hours": None, "median_hours": None, "max_hours": None}
+        return _range([r.hours_to_close for r in rows])
+    key = GROUPS[group_by]
+    hours = defaultdict(list)
+    for r in rows:
+        if key(r):
+            hours[key(r)].append(r.hours_to_close)
+    ranges = {g: _range(v) for g, v in hours.items()}
+    ordered = sorted(ranges.items(), key=lambda item: (-item[1]["max_hours"], item[0]))
+    return dict(ordered[:MAX_ROWS])
+
+
 @mcp.tool(annotations={"readOnlyHint": True})
 def search_requests(
     service: str | None = None,
