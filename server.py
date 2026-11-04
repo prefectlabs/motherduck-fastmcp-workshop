@@ -18,6 +18,27 @@ from sf311.kit import ask_choice, caller_email, read_choice
 mcp = FastMCP("sf-311")
 log = logging.getLogger("sf311.server")
 
+COLUMNS = {
+    "request_id": "Unique 311 case ID. Pass it to get_request.",
+    "opened": "When the request was filed (ISO 8601, local time).",
+    "closed": "When the city closed it, or null if still open.",
+    "status": "'Open' or 'Closed'.",
+    "service": "Request category, e.g. 'Graffiti Public'. Exact names come from dataset_info.",
+    "subtype": "Finer category within the service.",
+    "agency": "City agency responsible for the request.",
+    "neighborhood": "One of 41 official analysis neighborhoods, or '' when unknown.",
+    "local_name": "Everyday area name, e.g. 'Lower Nob Hill'; can span several official neighborhoods.",
+    "address": "Location masked to the block, e.g. '900 block of HARRISON ST'. Intersections stay as-is.",
+    "source": "How it was filed, e.g. Phone, Mobile/Open311, Web.",
+}
+
+
+@mcp.resource("sf311://columns", mime_type="application/json")
+def columns() -> dict:
+    """What each field in a 311 request record means, for reading tool results."""
+    return COLUMNS
+
+
 HOUSE_NUMBER = re.compile(r"^(\d+)\s+([^,]+)")
 
 
