@@ -3,6 +3,8 @@
 FastMCP Gateway runs this file. Its entrypoint setting is `server.py:mcp`.
 """
 
+import logging
+import re
 from collections import Counter, defaultdict
 from statistics import median
 from typing import Literal
@@ -11,8 +13,28 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from sf311.data import BY_ID, LOCAL_NAMES, NEIGHBORHOODS, REQUESTS, SERVICES, Request, closest
+from sf311.kit import caller_email
 
 mcp = FastMCP("sf-311")
+log = logging.getLogger("sf311.server")
+
+HOUSE_NUMBER = re.compile(r"^(\d+)\s+([^,]+)")
+
+
+def _mask_address(address: str | None) -> str | None:
+    """Reduce a street address to its block; leave addresses without a house number alone."""
+    match = HOUSE_NUMBER.match(address or "")
+    if not match:
+        return address
+    block = int(match.group(1)) // 100 * 100
+    return f"{block} block of {match.group(2).strip()}"
+
+
+def _public(request: Request) -> dict:
+    """The record a tool may return: the address is masked to the block."""
+    row = request.as_dict()
+    row["address"] = _mask_address(row.get("address"))
+    return row
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
@@ -132,23 +154,26 @@ def search_requests(
     Returns up to `limit` (1-50) request records. Use this to see examples or
     details; do not use it to count, since results are capped. Use
     count_requests for totals and get_request for one known request_id.
+    Addresses are shown only to the block (e.g. "900 block of HARRISON ST").
     """
     if not 1 <= limit <= MAX_ROWS:
         raise ToolError(f"limit must be between 1 and {MAX_ROWS}. For totals, use count_requests.")
     rows = sorted(_matching(service, neighborhood, status), key=lambda r: r.opened, reverse=True)
-    return [r.as_dict() for r in rows[:limit]]
+    return [_public(r) for r in rows[:limit]]
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
 def get_request(request_id: str) -> dict:
     """Return the full record for one 311 request by its request_id.
 
-    Use this when you already have an ID, e.g. from search_requests.
+    Use this when you already have an ID, e.g. from search_requests. The
+    address is shown only to the block (e.g. "900 block of HARRISON ST").
     """
+    log.info("get_request request_id=%s caller=%s", request_id, caller_email() or "local")
     request = BY_ID.get(request_id.strip())
     if request is None:
         raise ToolError(f"No request with id {request_id!r}. Use search_requests to find valid IDs.")
-    return request.as_dict()
+    return _public(request)
 
 
 if __name__ == "__main__":
