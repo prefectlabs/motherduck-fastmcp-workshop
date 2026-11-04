@@ -164,11 +164,17 @@ def median_close_hours(
 
 
 def _range(hours: list[float]) -> dict:
+    """Range over valid durations; a closed time before the opened time is bad source data."""
+    valid = [h for h in hours if h >= 0]
+    if not valid:
+        return {"closed": 0, "min_hours": None, "median_hours": None, "max_hours": None,
+                "negative_skipped": len(hours)}
     return {
-        "closed": len(hours),
-        "min_hours": round(min(hours), 1),
-        "median_hours": round(median(hours), 1),
-        "max_hours": round(max(hours), 1),
+        "closed": len(valid),
+        "min_hours": round(min(valid), 1),
+        "median_hours": round(median(valid), 1),
+        "max_hours": round(max(valid), 1),
+        "negative_skipped": len(hours) - len(valid),
     }
 
 
@@ -179,9 +185,11 @@ def close_hours_range(
 ) -> dict:
     """Fastest, median and slowest hours from opened to closed, for closed requests.
 
-    Without group_by, returns {closed, min_hours, median_hours, max_hours}
-    (hours rounded to 0.1; closed is 0 and the hours are None if nothing has
-    closed). Use it for "longest/shortest time any request took to close".
+    Without group_by, returns {closed, min_hours, median_hours, max_hours,
+    negative_skipped} (hours rounded to 0.1; closed is 0 and the hours are None
+    if nothing has closed). Requests whose closed time is before their opened
+    time are bad source data: they are left out of the hours and counted in
+    negative_skipped. Use it for "longest/shortest time any request took to close".
     With group_by, returns group -> that same dict, slowest max first, at most
     50 groups; use it to compare the fastest and slowest neighborhoods or agencies.
     For volumes use count_requests; for just a median, median_close_hours.
@@ -189,8 +197,6 @@ def close_hours_range(
     _check_group(group_by, MEDIAN_GROUPS)
     rows = [r for r in _matching(service) if r.hours_to_close is not None]
     if group_by is None:
-        if not rows:
-            return {"closed": 0, "min_hours": None, "median_hours": None, "max_hours": None}
         return _range([r.hours_to_close for r in rows])
     key = GROUPS[group_by]
     hours = defaultdict(list)
@@ -198,6 +204,7 @@ def close_hours_range(
         if key(r):
             hours[key(r)].append(r.hours_to_close)
     ranges = {g: _range(v) for g, v in hours.items()}
+    ranges = {g: v for g, v in ranges.items() if v["closed"]}
     ordered = sorted(ranges.items(), key=lambda item: (-item[1]["max_hours"], item[0]))
     return dict(ordered[:MAX_ROWS])
 
@@ -208,17 +215,31 @@ def search_requests(
     neighborhood: str | None = None,
     status: Literal["Open", "Closed"] | None = None,
     limit: int = 20,
-) -> list[dict]:
+    boundary: str | None = None,
+    ctx: Context | None = None,
+) -> list[dict] | str:
     """List individual 311 requests matching the filters, newest first.
 
     Returns up to `limit` (1-50) request records. Use this to see examples or
     details; do not use it to count, since results are capped. Use
     count_requests for totals and get_request for one known request_id.
     Addresses are shown only to the block (e.g. "900 block of HARRISON ST").
+    `neighborhood` can be an official name or a local name (e.g. "Lower Nob
+    Hill"). A local name that spans several official neighborhoods makes the
+    tool ask the user which part; pass `boundary` (one of the overlapped
+    neighborhoods, or "all") to skip the question.
     """
     if not 1 <= limit <= MAX_ROWS:
         raise ToolError(f"limit must be between 1 and {MAX_ROWS}. For totals, use count_requests.")
-    rows = sorted(_matching(service, neighborhood, status), key=lambda r: r.opened, reverse=True)
+    if neighborhood is not None and neighborhood not in NEIGHBORHOODS and neighborhood in LOCAL_NAMES:
+        area, reply = _local_area(neighborhood, boundary, ctx, "search")
+        if reply is not None:
+            return reply
+        ids = {r.request_id for r in area}
+        rows = [r for r in _matching(service, None, status) if r.request_id in ids]
+    else:
+        rows = _matching(service, neighborhood, status)
+    rows = sorted(rows, key=lambda r: r.opened, reverse=True)
     return [_public(r) for r in rows[:limit]]
 
 
@@ -253,30 +274,42 @@ def count_in_neighborhood(name: str, ctx: Context, boundary: str | None = None) 
         suggestions = closest(name, NEIGHBORHOODS + LOCAL_NAMES)
         hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
         raise ToolError(f"Unknown neighborhood {name!r}.{hint}")
+    rows, reply = _local_area(name, boundary, ctx, "count")
+    return len(rows) if reply is None else reply
 
+
+def _local_area(name: str, boundary: str | None, ctx: Context, verb: str):
+    """Requests in a local name, asking which part when it spans several neighborhoods.
+
+    Returns (rows, None), or (None, reply) where reply is the question to ask
+    the user or a message saying they declined; the tool returns that reply as-is.
+    """
     in_area = [r for r in REQUESTS if r.local_name == name]
     parts = sorted({r.neighborhood for r in in_area if r.neighborhood})
     if len(parts) <= 1:
-        return len(in_area)
+        return in_area, None
 
     all_option = f"All of {name}"
     if boundary is None:
         choice = read_choice(ctx, "boundary")
         if choice is None:
-            return ask_choice(
+            return None, ask_choice(
                 "boundary",
-                f"{name} overlaps {len(parts)} official neighborhoods. Which part should I count?",
+                f"{name} overlaps {len(parts)} official neighborhoods. Which part should I {verb}?",
                 parts + [all_option],
             )
         if not choice.accepted:
-            return f"Nothing was counted: no part of {name} was chosen. Call again with boundary set to one of {', '.join(parts)}, or 'all'."
+            return None, (
+                f"Nothing was {verb}ed: no part of {name} was chosen. "
+                f"Call again with boundary set to one of {', '.join(parts)}, or 'all'."
+            )
         boundary = choice.value
 
     if boundary in ("all", all_option):
-        return len(in_area)
+        return in_area, None
     if boundary not in parts:
         raise ToolError(f"{boundary!r} is not part of {name}. Use one of: {', '.join(parts)}, or 'all'.")
-    return sum(1 for r in in_area if r.neighborhood == boundary)
+    return [r for r in in_area if r.neighborhood == boundary], None
 
 
 if __name__ == "__main__":
